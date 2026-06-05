@@ -1,0 +1,8 @@
+node_modules/
+dist/
+share/
+hc-cozyseq/
+.DS_Store
+*.local
+*.zip
+*.tsbuildinfo
