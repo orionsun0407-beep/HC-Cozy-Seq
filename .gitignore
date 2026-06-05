@@ -6,3 +6,5 @@ hc-cozyseq/
 *.local
 *.zip
 *.tsbuildinfo
+public/hero-meadow.png
+src/assets/hero-meadow.png

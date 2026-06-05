@@ -75,7 +75,7 @@ textarea:focus-visible {
   flex-direction: column;
   justify-content: space-between;
   isolation: isolate;
-  background-image: url("./assets/hero-meadow.png");
+  background-image: url("https://raw.githubusercontent.com/Orionchen-Sun/HC-CozySeq/main/hero-meadow.png");
   background-position: center;
   background-size: cover;
   overflow: hidden;
