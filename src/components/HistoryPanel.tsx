@@ -6,11 +6,15 @@ interface HistoryPanelProps {
   fileBindingSupported: boolean;
   fileName: string | null;
   fileNeedsPermission: boolean;
+  autoSaveEnabled: boolean;
+  autoSaveLastSavedAt: string | null;
+  autoSaveStatus: string | null;
   onRestore: (entry: ComparisonHistoryEntry) => void;
   onDelete: (id: string) => void;
   onClear: () => void;
   onBindFile: () => void;
   onUnbindFile: () => void;
+  onAutoSaveChange: (enabled: boolean) => void;
   onImportChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onExportFile: () => void;
 }
@@ -34,16 +38,30 @@ export function HistoryPanel({
   fileBindingSupported,
   fileName,
   fileNeedsPermission,
+  autoSaveEnabled,
+  autoSaveLastSavedAt,
+  autoSaveStatus,
   onRestore,
   onDelete,
   onClear,
   onBindFile,
   onUnbindFile,
+  onAutoSaveChange,
   onImportChange,
   onExportFile,
 }: HistoryPanelProps) {
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const fileButtonLabel = fileName ? (fileNeedsPermission ? 'Allow file access' : 'Rebind file') : 'Bind history file';
+  const autoSaveAvailable = Boolean(fileName) && !fileNeedsPermission;
+  const autoSaveDetail = fileName
+    ? fileNeedsPermission
+      ? 'Auto-save is waiting for file permission.'
+      : autoSaveStatus
+        ? autoSaveStatus
+        : autoSaveLastSavedAt
+          ? `Last JSON save: ${formatTime(autoSaveLastSavedAt)}`
+          : 'Auto-save writes this history JSON every 60 seconds.'
+    : 'Bind a history file to enable periodic JSON auto-save.';
   const note = fileName
     ? `当前会同步到本地文件：${fileName}${fileNeedsPermission ? '（需要重新授权后才能继续读写）' : ''}`
     : fileBindingSupported
@@ -60,6 +78,19 @@ export function HistoryPanel({
       </div>
 
       <p className="history-note">{note}</p>
+
+      <div className="history-autosave">
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            checked={autoSaveEnabled && autoSaveAvailable}
+            disabled={!autoSaveAvailable}
+            onChange={(event) => onAutoSaveChange(event.target.checked)}
+          />
+          <span>Auto-save JSON every 60s</span>
+        </label>
+        <p>{autoSaveDetail}</p>
+      </div>
 
       <div className="history-toolbar">
         <button className="button button--ghost button--small" type="button" onClick={onExportFile}>

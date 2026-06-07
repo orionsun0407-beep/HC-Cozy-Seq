@@ -637,6 +637,42 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.history-autosave {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(52, 88, 66, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.history-autosave p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: #273f31;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.toggle-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: #2f7a50;
+}
+
+.toggle-row input:disabled + span {
+  color: var(--muted);
+}
+
 .history-toolbar {
   display: flex;
   flex-wrap: wrap;

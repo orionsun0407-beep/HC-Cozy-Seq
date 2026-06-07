@@ -45,6 +45,8 @@ import { buildBatchStatistics } from './utils/statistics';
 
 const TEMPLATE_ID = 'template';
 const BLASTX_TEMPLATE_PRESETS_STORAGE_KEY = 'hc-cozyseq-blastx-template-presets-v1';
+const HISTORY_AUTO_SAVE_STORAGE_KEY = 'hc-cozyseq-history-auto-save-v1';
+const HISTORY_AUTO_SAVE_INTERVAL_MS = 60_000;
 
 function makeAlert(tone: AppAlert['tone'], message: string): AppAlert {
   return { id: crypto.randomUUID(), tone, message };
@@ -110,6 +112,23 @@ function writeBlastxTemplatePresetsToStorage(presets: BlastxTemplatePreset[]): s
   }
 }
 
+function readHistoryAutoSaveEnabledFromStorage(): boolean {
+  try {
+    return localStorage.getItem(HISTORY_AUTO_SAVE_STORAGE_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+function writeHistoryAutoSaveEnabledToStorage(enabled: boolean): string | null {
+  try {
+    localStorage.setItem(HISTORY_AUTO_SAVE_STORAGE_KEY, enabled ? 'true' : 'false');
+    return null;
+  } catch {
+    return '自动保存设置未能写入浏览器本地存储；刷新后可能不会保留。';
+  }
+}
+
 function fileExtensionsOk(files: FileList | File[] | null): boolean {
   if (!files?.length) return false;
   return Array.from(files).every((file) => SUPPORTED_SEQUENCE_EXTENSIONS.test(file.name));
@@ -166,6 +185,8 @@ function resolveBlastxTemplateType(
 export default function App() {
   const toolRef = useRef<HTMLElement | null>(null);
   const guideRef = useRef<HTMLElement | null>(null);
+  const historyEntriesRef = useRef<ComparisonHistoryEntry[]>([]);
+  const historyAutoSaveWritingRef = useRef(false);
   const [mode, setMode] = useState<Mode>('BLASTP');
   const [templateType, setTemplateType] = useState<TemplateType>('Auto');
   const [template, setTemplate] = useState<SequenceInput>({
@@ -183,6 +204,9 @@ export default function App() {
   const [historyFileHandle, setHistoryFileHandle] = useState<FileSystemFileHandle | null>(null);
   const [historyFileName, setHistoryFileName] = useState<string | null>(null);
   const [historyFileNeedsPermission, setHistoryFileNeedsPermission] = useState(false);
+  const [historyAutoSaveEnabled, setHistoryAutoSaveEnabled] = useState(() => readHistoryAutoSaveEnabledFromStorage());
+  const [historyAutoSaveLastSavedAt, setHistoryAutoSaveLastSavedAt] = useState<string | null>(null);
+  const [historyAutoSaveStatus, setHistoryAutoSaveStatus] = useState<string | null>(null);
   const historyFileSupported = supportsHistoryFileBinding();
 
   const stats = useMemo(() => (results.length ? buildBatchStatistics(results) : null), [results]);
@@ -194,6 +218,37 @@ export default function App() {
   const dismissAlert = (id: string) => {
     setAlerts((current) => current.filter((alert) => alert.id !== id));
   };
+
+  useEffect(() => {
+    historyEntriesRef.current = historyEntries;
+  }, [historyEntries]);
+
+  useEffect(() => {
+    if (!historyAutoSaveEnabled || !historyFileHandle || historyFileNeedsPermission) return;
+
+    const autoSaveHistory = async () => {
+      if (historyAutoSaveWritingRef.current) return;
+      historyAutoSaveWritingRef.current = true;
+
+      const fileError = await writeHistoryToFileHandle(historyFileHandle, historyEntriesRef.current);
+      if (fileError) {
+        setHistoryFileNeedsPermission(true);
+        setHistoryAutoSaveStatus(fileError);
+      } else {
+        setHistoryFileNeedsPermission(false);
+        setHistoryAutoSaveLastSavedAt(new Date().toISOString());
+        setHistoryAutoSaveStatus(null);
+      }
+
+      historyAutoSaveWritingRef.current = false;
+    };
+
+    const intervalId = window.setInterval(() => {
+      void autoSaveHistory();
+    }, HISTORY_AUTO_SAVE_INTERVAL_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [historyAutoSaveEnabled, historyFileHandle, historyFileNeedsPermission]);
 
   useEffect(() => {
     let cancelled = false;
@@ -246,9 +301,12 @@ export default function App() {
       const fileError = await writeHistoryToFileHandle(historyFileHandle, nextHistory);
       if (fileError) {
         setHistoryFileNeedsPermission(true);
+        setHistoryAutoSaveStatus(fileError);
         nextAlerts.push(makeAlert('warning', fileError));
       } else {
         setHistoryFileNeedsPermission(false);
+        setHistoryAutoSaveLastSavedAt(new Date().toISOString());
+        setHistoryAutoSaveStatus(null);
       }
     }
 
@@ -480,9 +538,12 @@ export default function App() {
       const fileError = await writeHistoryToFileHandle(historyFileHandle, nextHistory);
       if (fileError) {
         setHistoryFileNeedsPermission(true);
+        setHistoryAutoSaveStatus(fileError);
         nextAlerts.push(makeAlert('warning', fileError));
       } else {
         setHistoryFileNeedsPermission(false);
+        setHistoryAutoSaveLastSavedAt(new Date().toISOString());
+        setHistoryAutoSaveStatus(null);
       }
     }
     pushAlerts(nextAlerts.length ? nextAlerts : [makeAlert('success', 'Removed one local history record.')]);
@@ -497,9 +558,12 @@ export default function App() {
       const fileError = await writeHistoryToFileHandle(historyFileHandle, []);
       if (fileError) {
         setHistoryFileNeedsPermission(true);
+        setHistoryAutoSaveStatus(fileError);
         nextAlerts.push(makeAlert('warning', fileError));
       } else {
         setHistoryFileNeedsPermission(false);
+        setHistoryAutoSaveLastSavedAt(new Date().toISOString());
+        setHistoryAutoSaveStatus(null);
       }
     }
     pushAlerts(nextAlerts.length ? nextAlerts : [makeAlert('success', 'Cleared local comparison history.')]);
@@ -516,6 +580,8 @@ export default function App() {
       const nextHistory = reconnected.entries ?? historyEntries;
       setHistoryEntries(nextHistory);
       setHistoryFileNeedsPermission(false);
+      setHistoryAutoSaveLastSavedAt(new Date().toISOString());
+      setHistoryAutoSaveStatus(null);
       const cacheError = writeHistoryToStorage(nextHistory);
       const nextAlerts = [makeAlert('success', `History file access restored: ${historyFileHandle.name}.`)];
       if (reconnected.warning) nextAlerts.unshift(makeAlert('warning', reconnected.warning));
@@ -537,10 +603,12 @@ export default function App() {
     setHistoryFileName(bound.handle.name);
     setHistoryFileNeedsPermission(false);
     setHistoryEntries(mergedHistory);
+    setHistoryAutoSaveLastSavedAt(new Date().toISOString());
+    setHistoryAutoSaveStatus(null);
 
     const cacheError = writeHistoryToStorage(mergedHistory);
     const nextAlerts = [
-      makeAlert('success', `History file bound: ${bound.handle.name}. Future successful runs will be written to this file.`),
+      makeAlert('success', `History file bound: ${bound.handle.name}. It will auto-save to this local JSON every 60 seconds.`),
     ];
     if (bound.warning) nextAlerts.unshift(makeAlert('warning', bound.warning));
     if (cacheError) nextAlerts.unshift(makeAlert('warning', cacheError));
@@ -551,8 +619,20 @@ export default function App() {
     setHistoryFileHandle(null);
     setHistoryFileName(null);
     setHistoryFileNeedsPermission(false);
+    setHistoryAutoSaveLastSavedAt(null);
+    setHistoryAutoSaveStatus(null);
     const error = await clearStoredHistoryFileHandle();
     pushAlerts([makeAlert(error ? 'warning' : 'success', error ?? 'History file unbound. The app will keep using browser-local history.')]);
+  };
+
+  const handleHistoryAutoSaveChange = (enabled: boolean) => {
+    setHistoryAutoSaveEnabled(enabled);
+    const error = writeHistoryAutoSaveEnabledToStorage(enabled);
+    const nextAlerts: AppAlert[] = [];
+
+    if (error) nextAlerts.push(makeAlert('warning', error));
+    nextAlerts.push(makeAlert(enabled ? 'success' : 'info', enabled ? 'History JSON auto-save enabled.' : 'History JSON auto-save paused.'));
+    pushAlerts(nextAlerts);
   };
 
   const handleExportHistoryFile = () => {
@@ -603,9 +683,12 @@ export default function App() {
         const fileError = await writeHistoryToFileHandle(historyFileHandle, nextHistory);
         if (fileError) {
           setHistoryFileNeedsPermission(true);
+          setHistoryAutoSaveStatus(fileError);
           nextAlerts.push(makeAlert('warning', fileError));
         } else {
           setHistoryFileNeedsPermission(false);
+          setHistoryAutoSaveLastSavedAt(new Date().toISOString());
+          setHistoryAutoSaveStatus(null);
         }
       }
 
@@ -754,11 +837,15 @@ export default function App() {
               fileBindingSupported={historyFileSupported}
               fileName={historyFileName}
               fileNeedsPermission={historyFileNeedsPermission}
+              autoSaveEnabled={historyAutoSaveEnabled}
+              autoSaveLastSavedAt={historyAutoSaveLastSavedAt}
+              autoSaveStatus={historyAutoSaveStatus}
               onRestore={handleRestoreHistory}
               onDelete={handleDeleteHistory}
               onClear={handleClearHistory}
               onBindFile={handleBindHistoryFile}
               onUnbindFile={handleUnbindHistoryFile}
+              onAutoSaveChange={handleHistoryAutoSaveChange}
               onImportChange={handleImportHistoryChange}
               onExportFile={handleExportHistoryFile}
             />
