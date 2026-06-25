@@ -29,6 +29,8 @@ const LABEL_WIDTH_MIN = 126;
 const LABEL_WIDTH_MAX = 360;
 const NOTE_WIDTH = 188;
 const SEGMENT_GAP = 34;
+const MAX_SEGMENT_CELL_COUNT = 56;
+const RASTER_EXPORT_SCALE = 6;
 const LINE_MAX_PLOT_WIDTH = 1080;
 const TOP_MARGIN = 82;
 const LEFT_MARGIN = 18;
@@ -84,42 +86,131 @@ async function exportSvg(svg: SVGSVGElement, filename: string) {
   downloadBlob(new Blob([source], { type: 'image/svg+xml;charset=utf-8' }), filename);
 }
 
-async function exportPng(svg: SVGSVGElement, filename: string) {
+async function renderSvgToCanvas(svg: SVGSVGElement): Promise<HTMLCanvasElement> {
   const source = serializeSvg(svg);
   const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const image = new Image();
-
-  await new Promise<void>((resolve, reject) => {
-    image.onload = () => resolve();
-    image.onerror = () => reject(new Error('failed to load svg'));
-    image.src = url;
-  });
-
   const width = Number(svg.getAttribute('width') ?? 1600);
   const height = Number(svg.getAttribute('height') ?? 1000);
-  const scale = Math.max(window.devicePixelRatio || 1, 6);
-  const canvas = document.createElement('canvas');
-  canvas.width = width * scale;
-  canvas.height = height * scale;
+  const scale = Math.max(window.devicePixelRatio || 1, RASTER_EXPORT_SCALE);
+  const pixelWidth = Math.ceil(width * scale);
+  const pixelHeight = Math.ceil(height * scale);
 
-  const context = canvas.getContext('2d');
-  if (!context) {
+  try {
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('failed to load svg'));
+      image.width = pixelWidth;
+      image.height = pixelHeight;
+      image.decoding = 'sync';
+      image.src = url;
+    });
+
+    const canvas = document.createElement('canvas');
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
+
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('canvas unavailable');
+    }
+
+    context.scale(scale, scale);
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+    return canvas;
+  } finally {
     URL.revokeObjectURL(url);
-    throw new Error('canvas unavailable');
   }
+}
 
-  context.scale(scale, scale);
-  context.imageSmoothingEnabled = true;
-  context.imageSmoothingQuality = 'high';
-  context.fillStyle = '#ffffff';
-  context.fillRect(0, 0, width, height);
-  context.drawImage(image, 0, 0, width, height);
-
+async function exportPng(svg: SVGSVGElement, filename: string) {
+  const canvas = await renderSvgToCanvas(svg);
   const pngBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
-  URL.revokeObjectURL(url);
   if (!pngBlob) throw new Error('png export failed');
   downloadBlob(pngBlob, filename);
+}
+
+function writeTiffEntry(view: DataView, offset: number, tag: number, type: number, count: number, value: number) {
+  view.setUint16(offset, tag, true);
+  view.setUint16(offset + 2, type, true);
+  view.setUint32(offset + 4, count, true);
+  if (type === 3 && count === 1) {
+    view.setUint16(offset + 8, value, true);
+    view.setUint16(offset + 10, 0, true);
+    return;
+  }
+  view.setUint32(offset + 8, value, true);
+}
+
+function canvasToTiffBlob(canvas: HTMLCanvasElement): Blob {
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('canvas unavailable');
+
+  const { width, height } = canvas;
+  const pixels = context.getImageData(0, 0, width, height).data;
+  const entryCount = 12;
+  const ifdOffset = 8;
+  const ifdByteLength = 2 + entryCount * 12 + 4;
+  const bitsPerSampleOffset = ifdOffset + ifdByteLength;
+  const xResolutionOffset = bitsPerSampleOffset + 6;
+  const yResolutionOffset = xResolutionOffset + 8;
+  const imageOffset = yResolutionOffset + 8;
+  const imageByteLength = width * height * 3;
+  const buffer = new ArrayBuffer(imageOffset + imageByteLength);
+  const view = new DataView(buffer);
+
+  view.setUint8(0, 0x49);
+  view.setUint8(1, 0x49);
+  view.setUint16(2, 42, true);
+  view.setUint32(4, ifdOffset, true);
+  view.setUint16(ifdOffset, entryCount, true);
+
+  let entryOffset = ifdOffset + 2;
+  const addEntry = (tag: number, type: number, count: number, value: number) => {
+    writeTiffEntry(view, entryOffset, tag, type, count, value);
+    entryOffset += 12;
+  };
+
+  addEntry(256, 4, 1, width);
+  addEntry(257, 4, 1, height);
+  addEntry(258, 3, 3, bitsPerSampleOffset);
+  addEntry(259, 3, 1, 1);
+  addEntry(262, 3, 1, 2);
+  addEntry(273, 4, 1, imageOffset);
+  addEntry(277, 3, 1, 3);
+  addEntry(278, 4, 1, height);
+  addEntry(279, 4, 1, imageByteLength);
+  addEntry(282, 5, 1, xResolutionOffset);
+  addEntry(283, 5, 1, yResolutionOffset);
+  addEntry(296, 3, 1, 2);
+  view.setUint32(entryOffset, 0, true);
+
+  view.setUint16(bitsPerSampleOffset, 8, true);
+  view.setUint16(bitsPerSampleOffset + 2, 8, true);
+  view.setUint16(bitsPerSampleOffset + 4, 8, true);
+  view.setUint32(xResolutionOffset, 300, true);
+  view.setUint32(xResolutionOffset + 4, 1, true);
+  view.setUint32(yResolutionOffset, 300, true);
+  view.setUint32(yResolutionOffset + 4, 1, true);
+
+  const output = new Uint8Array(buffer, imageOffset);
+  for (let sourceIndex = 0, targetIndex = 0; sourceIndex < pixels.length; sourceIndex += 4, targetIndex += 3) {
+    output[targetIndex] = pixels[sourceIndex];
+    output[targetIndex + 1] = pixels[sourceIndex + 1];
+    output[targetIndex + 2] = pixels[sourceIndex + 2];
+  }
+
+  return new Blob([buffer], { type: 'image/tiff' });
+}
+
+async function exportTiff(svg: SVGSVGElement, filename: string) {
+  const canvas = await renderSvgToCanvas(svg);
+  downloadBlob(canvasToTiffBlob(canvas), filename);
 }
 
 function renderCell(cell: FocusWindowCell, x: number, y: number, key: string) {
@@ -179,6 +270,46 @@ function packSegments(segments: FocusWindow[]): FocusWindow[][] {
   return lines;
 }
 
+function labelsForCells(cells: FocusWindowCell[]): string[] {
+  const labels = cells.flatMap((cell) => [cell.mutation?.event, ...cell.insertionLabels]).filter((label): label is string => Boolean(label));
+  return [...new Set(labels)];
+}
+
+function splitLongSegments(segments: FocusWindow[]): FocusWindow[] {
+  return segments.flatMap((segment) => {
+    if (segment.rows[0]?.cells.length <= MAX_SEGMENT_CELL_COUNT) return [segment];
+
+    const parts: FocusWindow[] = [];
+    const cellCount = segment.rows[0]?.cells.length ?? 0;
+    for (let startIndex = 0; startIndex < cellCount; startIndex += MAX_SEGMENT_CELL_COUNT) {
+      const endIndex = Math.min(startIndex + MAX_SEGMENT_CELL_COUNT, cellCount);
+      const firstCell = segment.rows[0]?.cells[startIndex];
+      const lastCell = segment.rows[0]?.cells[endIndex - 1];
+      if (!firstCell || !lastCell) continue;
+
+      const rows = segment.rows.map((row) => {
+        const cells = row.cells.slice(startIndex, endIndex);
+        return {
+          ...row,
+          cells,
+          mutationLabels: labelsForCells(cells),
+        };
+      });
+
+      parts.push({
+        ...segment,
+        id: `${segment.id}-part-${parts.length + 1}`,
+        start: firstCell.position,
+        end: lastCell.position,
+        rows,
+        title: `Positions ${firstCell.position}-${lastCell.position}`,
+      });
+    }
+
+    return parts;
+  });
+}
+
 function aggregateRowNote(rowIndex: number, segments: FocusWindow[]): string {
   const labels = segments.flatMap((segment) => segment.rows[rowIndex]?.mutationLabels ?? []);
   return summarizeLabels(labels);
@@ -202,7 +333,7 @@ export function ComparisonOverview({ results, rules, onStatus }: ComparisonOverv
     );
   }
 
-  const segments = model.focusWindows;
+  const segments = splitLongSegments(model.focusWindows);
   if (!segments.length) {
     return (
       <section className="card overview-card" aria-labelledby="overview-title">
@@ -257,10 +388,20 @@ export function ComparisonOverview({ results, rules, onStatus }: ComparisonOverv
   const handleSavePng = async () => {
     if (!svgRef.current) return;
     try {
-      await exportPng(svgRef.current, `${exportBaseName}.png`);
-      onStatus('Overview figure saved as PNG.', true);
+      await exportPng(svgRef.current, `${exportBaseName}-hd.png`);
+      onStatus('Overview figure saved as HD PNG.', true);
     } catch {
       onStatus('Failed to save overview PNG.', false);
+    }
+  };
+
+  const handleSaveTiff = async () => {
+    if (!svgRef.current) return;
+    try {
+      await exportTiff(svgRef.current, `${exportBaseName}.tif`);
+      onStatus('Overview figure saved as TIF.', true);
+    } catch {
+      onStatus('Failed to save overview TIF.', false);
     }
   };
 
@@ -276,7 +417,10 @@ export function ComparisonOverview({ results, rules, onStatus }: ComparisonOverv
             Save SVG
           </button>
           <button className="button button--ghost button--small" type="button" onClick={handleSavePng}>
-            Save PNG
+            Save HD PNG
+          </button>
+          <button className="button button--ghost button--small" type="button" onClick={handleSaveTiff}>
+            Save TIF
           </button>
         </div>
       </div>
