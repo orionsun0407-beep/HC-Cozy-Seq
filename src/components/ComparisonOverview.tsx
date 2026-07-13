@@ -1,5 +1,6 @@
 import { useMemo, useRef } from 'react';
 import type { ColorRule, ComparisonResult } from '../types';
+import { exportMutationWorkbook } from '../utils/excelExport';
 import { buildOverviewModel, type FocusWindow, type FocusWindowCell } from '../utils/overview';
 
 interface ComparisonOverviewProps {
@@ -333,6 +334,19 @@ export function ComparisonOverview({ results, rules, onStatus }: ComparisonOverv
     );
   }
 
+  const handleSaveExcel = async () => {
+    try {
+      await exportMutationWorkbook(
+        results,
+        rules,
+        `hc-cozyseq-mutations-${model.mode.toLowerCase()}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.xlsx`,
+      );
+      onStatus('Mutation table saved as Excel.', true);
+    } catch {
+      onStatus('Failed to save mutation Excel table.', false);
+    }
+  };
+
   const segments = splitLongSegments(model.focusWindows);
   if (!segments.length) {
     return (
@@ -341,6 +355,11 @@ export function ComparisonOverview({ results, rules, onStatus }: ComparisonOverv
           <div>
             <p className="eyebrow">Work summary</p>
             <h2 id="overview-title">Comparison Overview</h2>
+          </div>
+          <div className="tool-actions">
+            <button className="button button--ghost button--small" type="button" onClick={handleSaveExcel}>
+              Save Excel
+            </button>
           </div>
         </div>
         <p className="empty-note">This batch has no called mutation events, so there is no zoomed mutation overview to display.</p>
@@ -421,6 +440,9 @@ export function ComparisonOverview({ results, rules, onStatus }: ComparisonOverv
           </button>
           <button className="button button--ghost button--small" type="button" onClick={handleSaveTiff}>
             Save TIF
+          </button>
+          <button className="button button--ghost button--small" type="button" onClick={handleSaveExcel}>
+            Save Excel
           </button>
         </div>
       </div>
