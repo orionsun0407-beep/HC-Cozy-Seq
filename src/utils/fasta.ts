@@ -2,6 +2,8 @@ import type { FastaParseResult, FastaRecord } from '../types';
 
 const SUPPORTED_SEQUENCE_EXTENSIONS = /\.(fasta|fas|fa|mpfa|faa|pep|aa|fna|ffn|frn|cds|nt|fastq|fq|txt|seq|gb|gbk|genbank|embl|dna|ape)$/i;
 const IUPAC_SEQUENCE_RUN = /[ACGTRYSWKMBDHVNUacgtryswkmbdhvnu]{24,}/g;
+const GENERIC_ASSEMBLY_RECORD_NAME = /^(?:contig|scaffold|sequence|seq|record)\s*[_-]?\d+(?:\s+(?:circular|linear))?$/i;
+const SAMPLE_NAMED_SINGLE_RECORD_FILE = /\.(?:genome|consensus(?:\.insert)?)\.(?:fasta|fas|fa|fna)$/i;
 
 export function trimTerminalStopSymbol(sequence: string): string {
   return sequence.replace(/\*+$/g, '');
@@ -29,7 +31,19 @@ function sanitizeFastaBody(lines: string[]): string {
 
 function fallbackName(sourceName?: string): string {
   if (!sourceName) return 'Sequence';
-  return sourceName.replace(SUPPORTED_SEQUENCE_EXTENSIONS, '') || 'Sequence';
+  const withoutSequenceExtension = sourceName.replace(SUPPORTED_SEQUENCE_EXTENSIONS, '');
+  return withoutSequenceExtension.replace(/\.(?:genome|consensus(?:\.insert)?|assembly|contigs?|scaffolds?)$/i, '') || 'Sequence';
+}
+
+function preferFilenameForKnownSingleRecord(records: FastaRecord[], sourceName?: string): FastaRecord[] {
+  if (
+    records.length !== 1 ||
+    !sourceName ||
+    (!SAMPLE_NAMED_SINGLE_RECORD_FILE.test(sourceName) && !GENERIC_ASSEMBLY_RECORD_NAME.test(records[0].name))
+  ) {
+    return records;
+  }
+  return [{ ...records[0], name: fallbackName(sourceName) }];
 }
 
 function parseGenBank(text: string, sourceName?: string): FastaParseResult | null {
@@ -175,7 +189,7 @@ export function parseFASTA(text: string, sourceName?: string): FastaParseResult 
     errors.push('未解析到有效 FASTA 记录。');
   }
 
-  return { records, warnings, errors };
+  return { records: preferFilenameForKnownSingleRecord(records, sourceName), warnings, errors };
 }
 
 export function parseSequenceText(text: string, sourceName?: string): FastaParseResult {

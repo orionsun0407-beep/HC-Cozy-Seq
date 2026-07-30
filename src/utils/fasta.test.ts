@@ -16,6 +16,29 @@ test('parseFASTA parses multiple records and strips headers, spaces, and numbers
   );
 });
 
+test('parseFASTA uses the sample filename for a single generic assembly header', () => {
+  const parsed = parseFASTA('>contig1 circular\nATGCGT\n', 'c12-1.genome.fa');
+
+  assert.equal(parsed.errors.length, 0);
+  assert.equal(parsed.records[0].name, 'c12-1');
+});
+
+test('parseFASTA uses the sample filename for a consensus insert result', () => {
+  const parsed = parseFASTA(
+    '>S22607272133-AE12 insert\nATGCGT\n',
+    'S22607272133-AE12.consensus.insert.fasta',
+  );
+
+  assert.equal(parsed.errors.length, 0);
+  assert.equal(parsed.records[0].name, 'S22607272133-AE12');
+});
+
+test('parseFASTA keeps a meaningful header instead of replacing it with the filename', () => {
+  const parsed = parseFASTA('>F65S clone\nATGCGT\n', 'sample.fasta');
+
+  assert.equal(parsed.records[0].name, 'F65S clone');
+});
+
 test('sanitizeSequence removes pasted FASTA headers', () => {
   assert.equal(sanitizeSequence('>header\nacg 123\nTT'), 'ACGTT');
 });
