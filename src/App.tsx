@@ -743,6 +743,7 @@ export default function App() {
           ? sanitizeSequence(first.sequence, { trimTerminalStops: true })
           : sanitizeSequence(first.sequence);
       setTemplate({ id: TEMPLATE_ID, name: first.name, sequence });
+      setTemplateType(resolved.type);
       nextAlerts.push(...resolved.alerts);
     }
 

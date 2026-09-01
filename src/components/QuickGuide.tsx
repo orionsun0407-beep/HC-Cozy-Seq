@@ -12,7 +12,7 @@ const guideItems = [
   },
   {
     title: 'BLASTX',
-    body: '用于 DNA/CDS Query。系统会翻译 6 个阅读框，优先选择更合理的 Met 起始 ORF。',
+    body: '模板可直接输入氨基酸序列，也可输入 DNA/CDS；Query 使用 DNA/CDS。翻译后的比对从双方起始 Met 开始。',
     visual: 'X',
   },
   {

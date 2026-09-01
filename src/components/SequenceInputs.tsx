@@ -79,9 +79,9 @@ export function SequenceInputs({
           <label className="field field--compact">
             <span>Template type</span>
             <select value={templateType} onChange={(event) => onTemplateTypeChange(event.target.value as TemplateType)}>
-              <option value="Auto">Auto</option>
-              <option value="Protein">Protein</option>
-              <option value="DNA">DNA</option>
+              <option value="Auto">Auto detect</option>
+              <option value="Protein">Amino acid (Protein)</option>
+              <option value="DNA">DNA / CDS</option>
             </select>
           </label>
         )}
@@ -146,13 +146,25 @@ export function SequenceInputs({
             />
           </label>
           <label className="field field--sequence">
-            <span>{mode === 'BLASTP' ? 'Template protein sequence' : 'Template protein or DNA/CDS sequence'}</span>
+            <span>
+              {mode === 'BLASTP'
+                ? 'Template protein sequence'
+                : templateType === 'Protein'
+                  ? 'Template amino acid sequence'
+                  : templateType === 'DNA'
+                    ? 'Template DNA/CDS sequence'
+                    : 'Template amino acid or DNA/CDS sequence'}
+            </span>
             <textarea
               value={template.sequence}
               onChange={(event) => onTemplateChange({ ...template, sequence: event.target.value })}
               spellCheck={false}
               rows={8}
-              placeholder="Paste plain sequence or FASTA"
+              placeholder={
+                mode === 'BLASTX' && templateType === 'Protein'
+                  ? 'Paste amino acid sequence or protein FASTA (must start with M)'
+                  : 'Paste plain sequence or FASTA'
+              }
             />
           </label>
         </div>
