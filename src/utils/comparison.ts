@@ -68,10 +68,17 @@ function maxPossibleRank(templateCandidate: OrfCandidate, queryCandidate: OrfCan
 function selectBestCandidateAlignment(
   templateCandidates: OrfCandidate[],
   queryCandidates: OrfCandidate[],
-): { best: CandidateAlignment | null; evaluatedPairs: number; skippedPairs: number; cachedPairs: number } {
+): {
+  best: CandidateAlignment | null;
+  evaluatedPairs: number;
+  skippedPairs: number;
+  rejectedPairs: number;
+  cachedPairs: number;
+} {
   let best: CandidateAlignment | null = null;
   let evaluatedPairs = 0;
   let skippedPairs = 0;
+  let rejectedPairs = 0;
   let cachedPairs = 0;
   const alignmentCache = new Map<string, AlignmentResult>();
 
@@ -91,6 +98,15 @@ function selectBestCandidateAlignment(
         alignmentCache.set(cacheKey, alignment);
       }
       evaluatedPairs += 1;
+
+      // BLASTX comparisons are anchored to complete translated ORFs. Even when
+      // both candidates begin with Met, a local alignment can otherwise trim
+      // their leading residues and start at a later high-scoring window.
+      if (alignment.templateStart !== 0 || alignment.queryStart !== 0) {
+        rejectedPairs += 1;
+        continue;
+      }
+
       const rankScore = rankAlignment(templateCandidate, queryCandidate, alignment);
 
       if (!best || rankScore > best.rankScore) {
@@ -99,7 +115,7 @@ function selectBestCandidateAlignment(
     }
   }
 
-  return { best, evaluatedPairs, skippedPairs, cachedPairs };
+  return { best, evaluatedPairs, skippedPairs, rejectedPairs, cachedPairs };
 }
 
 function metadataFromAlignment(
@@ -185,28 +201,26 @@ export function runBlastxStyleComparison(
     resolvedTemplateType === 'Protein'
       ? [proteinCandidate(template.name, sanitizeSequence(template.sequence, { trimTerminalStops: true }))]
       : getOrfCandidates(template.sequence);
-  const queryCandidates = getOrfCandidates(query.sequence);
+  const metStartedTemplateCandidates = templateCandidates.filter((candidate) => candidate.metStart);
+  const queryCandidates = getOrfCandidates(query.sequence).filter((candidate) => candidate.metStart);
 
-  if (!templateCandidates.length) {
-    return makeNoCandidateResult(template, query, resolvedTemplateType, '模板序列未找到有效 ORF 候选。');
+  if (!metStartedTemplateCandidates.length) {
+    return makeNoCandidateResult(template, query, resolvedTemplateType, '模板序列未找到以 M（Met）开始的有效 ORF 候选。');
   }
 
   if (!queryCandidates.length) {
-    return makeNoCandidateResult(template, query, resolvedTemplateType, 'Query 序列未找到有效 ORF 候选。');
+    return makeNoCandidateResult(template, query, resolvedTemplateType, 'Query 序列未找到以 M（Met）开始的有效 ORF 候选。');
   }
 
-  if (!templateCandidates.some((candidate) => candidate.metStart) && resolvedTemplateType === 'DNA') {
-    warnings.push('模板 DNA 未找到 Met 起始 ORF，已使用最长无 stop 片段作为候选。');
-  }
-
-  if (!queryCandidates.some((candidate) => candidate.metStart)) {
-    warnings.push('Query DNA 未找到 Met 起始 ORF，已使用无 stop 片段作为 fallback 候选。');
-  }
-
-  const selection = selectBestCandidateAlignment(templateCandidates, queryCandidates);
+  const selection = selectBestCandidateAlignment(metStartedTemplateCandidates, queryCandidates);
   const best = selection.best;
   if (!best) {
-    return makeNoCandidateResult(template, query, resolvedTemplateType, '未找到可用于突变分析的 ORF 比对。');
+    return makeNoCandidateResult(
+      template,
+      query,
+      resolvedTemplateType,
+      '未找到可以从双方首个 M（Met）开始的 ORF 比对。',
+    );
   }
 
   const mutations = extractMutations(best.alignment, best.templateCandidate.protein, best.queryCandidate.protein);
@@ -214,7 +228,7 @@ export function runBlastxStyleComparison(
     `Selected template candidate ${best.templateCandidate.id}, ${best.templateCandidate.protein.length} aa.`,
     `Selected query candidate ${best.queryCandidate.id}, ${best.queryCandidate.protein.length} aa.`,
     `Rank score ${best.rankScore.toFixed(2)} combines alignment score, coverage, gaps, mismatches, and Met-start preference.`,
-    `Candidate search evaluated ${selection.evaluatedPairs} pair(s), skipped ${selection.skippedPairs} by safe upper-bound pruning, reused ${selection.cachedPairs} cached alignment(s).`,
+    `Candidate search evaluated ${selection.evaluatedPairs} pair(s), rejected ${selection.rejectedPairs} not aligned from both Met starts, skipped ${selection.skippedPairs} by safe upper-bound pruning, reused ${selection.cachedPairs} cached alignment(s).`,
   ];
 
   return {

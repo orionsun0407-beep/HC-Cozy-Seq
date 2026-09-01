@@ -19,4 +19,26 @@ test('sample BLASTX mutations use translated template numbering', () => {
   assert.equal(f3.mutationSummary, 'F3-I125V,D188G');
   assert.equal(f3.metadata.templateFrame, '+1');
   assert.equal(f3.metadata.queryFrame, '+1');
+  assert.equal(f3.templateProteinUsed.startsWith('M'), true);
+  assert.equal(f3.queryProteinUsed.startsWith('M'), true);
+  assert.equal(f3.alignment.templateStart, 0);
+  assert.equal(f3.alignment.queryStart, 0);
+});
+
+test('BLASTX requires both translated ORFs to start with Met', () => {
+  const template = { name: 'Template CDS', sequence: 'ATGGCTGCTGCTTAA' };
+  const queryWithoutMet = { name: 'Partial query', sequence: 'GCTGCTGCTTAA' };
+  const result = runBlastxStyleComparison(template, queryWithoutMet, 'DNA');
+
+  assert.equal(result.alignment.score, 0);
+  assert.match(result.warnings[0], /M（Met）/);
+});
+
+test('BLASTX rejects a local match that trims either leading Met', () => {
+  const templateProtein = { name: 'Template protein', sequence: 'MAAAA' };
+  const queryDna = { name: 'Query CDS', sequence: 'ATGCGTCGTCGTGCTGCTGCTGCTTAA' };
+  const result = runBlastxStyleComparison(templateProtein, queryDna, 'Protein');
+
+  assert.equal(result.alignment.score, 0);
+  assert.match(result.warnings[0], /双方首个 M/);
 });
