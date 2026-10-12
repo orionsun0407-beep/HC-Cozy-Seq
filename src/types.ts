@@ -121,6 +121,7 @@ export interface ComparisonMetadata {
 }
 
 export interface ComparisonResult {
+  status?: 'matched' | 'unreliable';
   id: string;
   mode: Mode;
   templateName: string;

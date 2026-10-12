@@ -9,6 +9,7 @@ export interface MutationTableCell {
 
 export interface MutationTableRow {
   queryName: string;
+  noMutationLabel?: string;
   mutations: MutationTableCell[];
 }
 
@@ -19,6 +20,7 @@ function toArgb(hex: string): string {
 export function buildMutationTableRows(results: ComparisonResult[], rules: ColorRule[]): MutationTableRow[] {
   return results.map((result) => ({
     queryName: result.queryName.trim() || 'Query',
+    noMutationLabel: result.status === 'unreliable' ? '未检出可靠的目标序列（无法判断突变）' : 'No mutation',
     mutations: [...result.mutations]
       .sort((left, right) => left.templatePosition - right.templatePosition || left.alignmentColumn - right.alignmentColumn)
       .map((mutation) => ({
@@ -64,7 +66,7 @@ export async function exportMutationWorkbook(results: ComparisonResult[], rules:
   });
 
   for (const row of rows) {
-    const values = [row.queryName, ...(row.mutations.length ? row.mutations.map((mutation) => mutation.event) : ['No mutation'])];
+    const values = [row.queryName, ...(row.mutations.length ? row.mutations.map((mutation) => mutation.event) : [row.noMutationLabel])];
     const worksheetRow = sheet.addRow(values);
     worksheetRow.height = 23;
 

@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sampleBlastxQueries, sampleQueries, sampleTemplateDna, sampleTemplateProtein } from '../data/sampleData.ts';
-import { runBlastpStyleComparison, runBlastxStyleComparison } from './comparison.ts';
+import { runBlastpStyleComparison, runBlastxStyleComparison, runBlastxBatchComparisons } from './comparison.ts';
+import { proteinToDna } from './translation.ts';
+import { buildFormattedPlainText } from './copy.ts';
+import { createHistoryEntry } from './history.ts';
+import { buildMutationTableRows } from './excelExport.ts';
 
 test('sample BLASTP mutations use template residue numbering', () => {
   const template = { name: 'Template', sequence: sampleTemplateProtein };
@@ -58,4 +62,55 @@ test('BLASTX rejects a local match that trims either leading Met', () => {
 
   assert.equal(result.alignment.score, 0);
   assert.match(result.warnings[0], /双方首个 M/);
+});
+
+test('BLASTX fixes the template target across queries and rejects matching vector ORFs', () => {
+  const vectorProtein = 'MWWWWWWWWWWWWWWWWWWWW';
+  const template = { name: 'Target with vector', sequence: `${sampleTemplateDna}TAA${proteinToDna(vectorProtein)}TAA` };
+  const [target, vectorOnly] = runBlastxBatchComparisons(template, [
+    { name: 'Target', sequence: sampleTemplateDna },
+    { name: 'Vector only', sequence: `${proteinToDna(vectorProtein)}TAA` },
+  ], 'DNA');
+
+  assert.equal(target.status, 'matched');
+  assert.equal(target.templateProteinUsed, sampleTemplateProtein);
+  assert.equal(target.alignment.templateCoverage, 1);
+  assert.equal(vectorOnly.templateProteinUsed, sampleTemplateProtein);
+  assert.equal(vectorOnly.status, 'unreliable');
+  assert.equal(vectorOnly.alignment.templateCoverage, 0);
+  assert.deepEqual(vectorOnly.mutations, []);
+  assert.doesNotMatch(vectorOnly.mutationSummary, /No mutation/);
+});
+
+test('BLASTX retains a supported target when a plasmid has a longer unrelated ORF', () => {
+  const unrelated = 'M' + 'W'.repeat(sampleTemplateProtein.length + 30);
+  const template = { name: 'Plasmid', sequence: `${proteinToDna(unrelated)}TAA${sampleTemplateDna}TAA` };
+  const result = runBlastxStyleComparison(template, { name: 'Target', sequence: sampleTemplateDna }, 'DNA');
+  assert.equal(result.status, 'matched');
+  assert.equal(result.templateProteinUsed, sampleTemplateProtein);
+  assert.equal(result.alignment.templateCoverage, 1);
+});
+
+test('BLASTX rejects a Met-only match and preserves the failure in copy, history and Excel', () => {
+  const result = runBlastxStyleComparison(
+    { name: 'Protein target', sequence: sampleTemplateProtein },
+    { name: 'SGA1-like empty insert', sequence: 'ATGTAA' },
+    'Protein',
+  );
+  assert.equal(result.status, 'unreliable');
+  assert.equal(result.templateProteinUsed.length, sampleTemplateProtein.length);
+  assert.equal(result.alignment.score, 0);
+  assert.equal(result.queryProteinUsed, '');
+  assert.match(result.mutationSummary, /无法判断突变/);
+  assert.doesNotMatch(buildFormattedPlainText(result), /No mutation/);
+  assert.match(buildMutationTableRows([result], [])[0].noMutationLabel ?? '', /无法判断突变/);
+  const entry = createHistoryEntry({
+    mode: 'BLASTX', templateType: 'Protein',
+    template: { id: 'template', name: 'Protein target', sequence: sampleTemplateProtein },
+    queries: [{ id: 'q', name: result.queryName, sequence: 'ATGTAA' }],
+    colorRules: [], results: [result],
+  });
+  assert.equal(entry.templateLength, sampleTemplateProtein.length);
+  assert.equal(entry.summaries[0].templateCoverage, 0);
+  assert.match(entry.summaries[0].mutationSummary, /无法判断突变/);
 });

@@ -20,7 +20,7 @@ import type {
   TemplateType,
 } from './types';
 import { DEFAULT_COLOR_RULES } from './utils/colorRules';
-import { runBlastpStyleComparison, runBlastxStyleComparison } from './utils/comparison';
+import { runBlastpStyleComparison, runBlastxBatchComparisons } from './utils/comparison';
 import { readFastaFiles, sanitizeSequence, SUPPORTED_SEQUENCE_EXTENSIONS } from './utils/fasta';
 import {
   chooseAndBindHistoryFile,
@@ -510,7 +510,7 @@ export default function App() {
     }
 
     const templateRecord = resolvedType === 'Protein' ? toFastaRecord(template, 'Template', true) : toDnaFastaRecord(template, 'Template');
-    const nextResults = queryRecords.map((query) => runBlastxStyleComparison(templateRecord, query, resolvedType));
+    const nextResults = runBlastxBatchComparisons(templateRecord, queryRecords, resolvedType);
     setResults(nextResults);
     void persistHistory(nextResults, activeQueries);
     pushAlerts([...nextAlerts, makeAlert('success', `Analyzed ${nextResults.length} translated query sequence${nextResults.length === 1 ? '' : 's'}.`)]);

@@ -55,7 +55,7 @@ export function ResultCard({ result, rules, onCopyStatus }: ResultCardProps) {
         {result.mutations.length ? (
           result.mutations.map((mutation) => <MutationChip key={mutation.event} mutation={mutation} label={mutation.event} rules={rules} />)
         ) : (
-          <span className="mutation-chip mutation-chip--neutral">No mutation</span>
+          <span className="mutation-chip mutation-chip--neutral">{result.status === 'unreliable' ? '未检出可靠的目标序列 · 无法判断突变' : 'No mutation'}</span>
         )}
       </div>
 

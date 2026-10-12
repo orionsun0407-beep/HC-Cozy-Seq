@@ -107,6 +107,14 @@ function selectBestCandidateAlignment(
         continue;
       }
 
+      // A Met-only or other short coincidental match cannot establish the target.
+      // Coverage is measured against the fixed target, never a smaller template ORF.
+      const requiredResidues = Math.min(20, templateCandidate.protein.length);
+      const identity = alignment.matches / Math.max(1, alignment.alignedResidues);
+      if (alignment.alignedResidues < requiredResidues || alignment.templateCoverage < 0.5 || identity < 0.5) {
+        rejectedPairs += 1;
+        continue;
+      }
       const rankScore = rankAlignment(templateCandidate, queryCandidate, alignment);
 
       if (!best || rankScore > best.rankScore) {
@@ -171,20 +179,27 @@ export function runBlastpStyleComparison(template: FastaRecord, query: FastaReco
   };
 }
 
-function makeNoCandidateResult(template: FastaRecord, query: FastaRecord, templateType: string, message: string): ComparisonResult {
+function makeNoCandidateResult(
+  template: FastaRecord,
+  query: FastaRecord,
+  templateType: string,
+  message: string,
+  targetCandidate?: OrfCandidate,
+): ComparisonResult {
   const detectedTemplateType = detectSequenceType(template.sequence);
   const alignment = emptyAlignment();
   return {
     id: `${template.name}-${query.name}-${crypto.randomUUID()}`,
     mode: 'BLASTX',
+    status: 'unreliable',
     templateName: template.name,
     queryName: query.name,
-    templateProteinUsed: '',
+    templateProteinUsed: targetCandidate?.protein ?? '',
     queryProteinUsed: '',
     alignment,
     mutations: [],
-    mutationSummary: formatMutationSummary(query.name, []),
-    metadata: metadataFromAlignment('BLASTX', templateType, detectedTemplateType, alignment, [message]),
+    mutationSummary: `${query.name || 'Query'}-未检出可靠的目标序列（无法判断突变）`,
+    metadata: metadataFromAlignment('BLASTX', templateType, detectedTemplateType, alignment, [message], targetCandidate),
     warnings: [message],
   };
 }
@@ -193,6 +208,7 @@ export function runBlastxStyleComparison(
   template: FastaRecord,
   query: FastaRecord,
   resolvedTemplateType: Exclude<TemplateType, 'Auto'>,
+  fixedTarget?: OrfCandidate,
 ): ComparisonResult {
   const detectedTemplateType = detectSequenceType(template.sequence);
   const warnings: string[] = [];
@@ -202,38 +218,52 @@ export function runBlastxStyleComparison(
       ? [proteinCandidate(template.name, sanitizeSequence(template.sequence, { trimTerminalStops: true }))]
       : getOrfCandidates(template.sequence);
   const metStartedTemplateCandidates = templateCandidates.filter((candidate) => candidate.metStart);
+  const longestCandidate = metStartedTemplateCandidates.slice().sort((a, b) => b.protein.length - a.protein.length)[0];
   const queryCandidates = getOrfCandidates(query.sequence).filter((candidate) => candidate.metStart);
 
   if (!metStartedTemplateCandidates.length) {
     return makeNoCandidateResult(template, query, resolvedTemplateType, '模板序列未找到以 M（Met）开始的有效 ORF 候选。');
   }
 
+  // Full plasmids may contain a vector ORF longer than the intended insert.
+  // Use substantial target evidence, excluding tiny template fragments, rather
+  // than treating the longest plasmid ORF as the gene of interest automatically.
+  const minimumTargetLength = Math.min(20, longestCandidate.protein.length);
+  const supportedTarget = !fixedTarget && selectBestCandidateAlignment(
+    metStartedTemplateCandidates.filter((candidate) => candidate.protein.length >= minimumTargetLength),
+    queryCandidates,
+  ).best?.templateCandidate;
+  const targetCandidate = fixedTarget || supportedTarget || longestCandidate;
+
   if (!queryCandidates.length) {
-    return makeNoCandidateResult(template, query, resolvedTemplateType, 'Query 序列未找到以 M（Met）开始的有效 ORF 候选。');
+    return makeNoCandidateResult(template, query, resolvedTemplateType, 'Query 序列未找到以 M（Met）开始的有效 ORF 候选。', targetCandidate);
   }
 
-  const selection = selectBestCandidateAlignment(metStartedTemplateCandidates, queryCandidates);
+  const selection = selectBestCandidateAlignment([targetCandidate], queryCandidates);
   const best = selection.best;
   if (!best) {
     return makeNoCandidateResult(
       template,
       query,
       resolvedTemplateType,
-      '未找到可以从双方首个 M（Met）开始的 ORF 比对。',
+      `未检出可靠的目标序列：固定模板 ORF 为 ${targetCandidate.protein.length} aa（${targetCandidate.frameLabel}）。比对需从双方首个 M（Met）开始，覆盖至少 50% 的目标、至少 ${Math.min(20, targetCandidate.protein.length)} aa，且一致率至少 50%；当前无法判断突变。使用整质粒时，可输入目标 CDS 或氨基酸模板明确指定目标。`,
+      targetCandidate,
     );
   }
 
   const mutations = extractMutations(best.alignment, best.templateCandidate.protein, best.queryCandidate.protein);
   const topDebug = [
+    'Template target uses substantial Met-anchored evidence; batch queries share one target ORF.',
     `Selected template candidate ${best.templateCandidate.id}, ${best.templateCandidate.protein.length} aa.`,
     `Selected query candidate ${best.queryCandidate.id}, ${best.queryCandidate.protein.length} aa.`,
     `Rank score ${best.rankScore.toFixed(2)} combines alignment score, coverage, gaps, mismatches, and Met-start preference.`,
-    `Candidate search evaluated ${selection.evaluatedPairs} pair(s), rejected ${selection.rejectedPairs} not aligned from both Met starts, skipped ${selection.skippedPairs} by safe upper-bound pruning, reused ${selection.cachedPairs} cached alignment(s).`,
+    `Candidate search evaluated ${selection.evaluatedPairs} pair(s), rejected ${selection.rejectedPairs} failing Met anchoring or minimum target evidence, skipped ${selection.skippedPairs} by safe upper-bound pruning, reused ${selection.cachedPairs} cached alignment(s).`,
   ];
 
   return {
     id: `${template.name}-${query.name}-${crypto.randomUUID()}`,
     mode: 'BLASTX',
+    status: 'matched',
     templateName: template.name,
     queryName: query.name,
     templateProteinUsed: best.templateCandidate.protein,
@@ -252,4 +282,26 @@ export function runBlastxStyleComparison(
     ),
     warnings: best.alignment.score <= 0 ? [...warnings, '未找到可靠的翻译后局部比对窗口。'] : warnings,
   };
+}
+
+export function runBlastxBatchComparisons(
+  template: FastaRecord,
+  queries: FastaRecord[],
+  resolvedTemplateType: Exclude<TemplateType, 'Auto'>,
+): ComparisonResult[] {
+  const templateCandidates = resolvedTemplateType === 'Protein'
+    ? [proteinCandidate(template.name, sanitizeSequence(template.sequence, { trimTerminalStops: true }))]
+    : getOrfCandidates(template.sequence).filter((candidate) => candidate.metStart);
+  const longest = templateCandidates.slice().sort((a, b) => b.protein.length - a.protein.length)[0];
+  if (!longest) return queries.map((query) => runBlastxStyleComparison(template, query, resolvedTemplateType));
+  const minimumTargetLength = Math.min(20, longest.protein.length);
+  const eligibleTargets = templateCandidates.filter((candidate) => candidate.metStart && candidate.protein.length >= minimumTargetLength);
+  let supported: CandidateAlignment | null = null;
+  for (const query of queries) {
+    const candidates = getOrfCandidates(query.sequence).filter((candidate) => candidate.metStart);
+    const match = selectBestCandidateAlignment(eligibleTargets, candidates).best;
+    if (match && (!supported || match.rankScore > supported.rankScore)) supported = match;
+  }
+  const target = supported?.templateCandidate ?? longest;
+  return queries.map((query) => runBlastxStyleComparison(template, query, resolvedTemplateType, target));
 }

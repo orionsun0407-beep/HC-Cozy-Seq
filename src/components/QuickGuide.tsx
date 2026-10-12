@@ -12,7 +12,7 @@ const guideItems = [
   },
   {
     title: 'BLASTX',
-    body: '模板可直接输入氨基酸序列，也可输入 DNA/CDS；Query 使用 DNA/CDS。翻译后的比对从双方起始 Met 开始。',
+    body: '模板可输入氨基酸或 DNA/CDS；Query 使用 DNA/CDS。整质粒模板根据批次中可靠的比对证据选择目标 ORF，各 Query 共用同一目标。输入目标 CDS 或氨基酸模板可明确指定目标。证据不足时显示无法判断突变。',
     visual: 'X',
   },
   {

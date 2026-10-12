@@ -8,7 +8,8 @@ This is a local browser approximation of BLASTP/BLASTX-style analysis. It does n
 
 - BLASTP-style protein vs protein local alignment
 - BLASTX-style DNA/CDS translation across 6 reading frames
-- Met-start ORF preference with fallback ORF candidates
+- Fixed BLASTX batch target: the Met-start template ORF with the strongest substantial alignment evidence across the batch, or the supplied amino-acid template. All queries use the same target. Template ORFs shorter than 20 aa are excluded unless the entire template has only shorter ORFs. Use a target CDS/protein to specify the intended gene in a plasmid explicitly.
+- Met-anchored matches require at least 50% target coverage, at least 20 aligned residues (or the full target length for shorter targets), and at least 50% identity. Insufficient matches are reported as unreliable, without mutation calls.
 - Template amino-acid-numbered mutation calls such as `F2-K150R`
 - Substitution, deletion, and insertion calls such as `K150R`, `K150del`, `Δ150-170del`, and `K150insAA`
 - FASTA, FASTQ, GenBank, EMBL, plain sequence, native SnapGene `.dna`, and best-effort ApE sequence upload
