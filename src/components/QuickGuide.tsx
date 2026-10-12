@@ -16,8 +16,8 @@ const guideItems = [
     visual: 'X',
   },
   {
-    title: '上传 FASTA',
-    body: '模板只取第一个记录；Query 可多文件、多记录追加导入。',
+    title: '上传序列文件',
+    body: '支持 FASTA、GenBank 和原生 SnapGene .dna。模板只取第一个记录；Query 可多文件、多记录追加导入。.dna 会读取整条 DNA，名称取自文件名。',
     visual: 'FA',
   },
   {

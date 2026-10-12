@@ -11,7 +11,7 @@ This is a local browser approximation of BLASTP/BLASTX-style analysis. It does n
 - Met-start ORF preference with fallback ORF candidates
 - Template amino-acid-numbered mutation calls such as `F2-K150R`
 - Substitution, deletion, and insertion calls such as `K150R`, `K150del`, `Δ150-170del`, and `K150insAA`
-- FASTA, FASTQ, GenBank, EMBL, plain sequence, and best-effort SnapGene/ApE sequence upload
+- FASTA, FASTQ, GenBank, EMBL, plain sequence, native SnapGene `.dna`, and best-effort ApE sequence upload
 - Dynamic mutation color rules used consistently on chips, sequence highlights, and copied HTML
 - Batch mutation statistics with repeated positions, repeated exact events, and supporting query names
 - `Copy formatted` with `text/html` and `text/plain` clipboard payloads
@@ -97,3 +97,4 @@ Then publish `dist/` with your preferred GitHub Pages workflow.
 - All parsing, translation, alignment, mutation extraction, highlighting, batch statistics, and copy formatting run in the browser.
 - Protein terminal `*` cleanup removes only trailing stop symbols. Internal `*` symbols are preserved and reported as invalid protein input.
 - BLASTP mode blocks DNA-like input and suggests switching to BLASTX.
+- SnapGene `.dna` uploads read the complete DNA sequence directly from the binary DNA packet and use the filename as the sequence name. Template and Query uploads both support this format in BLASTX mode. Feature/CDS annotations are not automatically selected; the full DNA enters the existing six-frame translation workflow. Truncated or invalid native files report an error.

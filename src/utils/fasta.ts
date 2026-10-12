@@ -1,4 +1,5 @@
 import type { FastaParseResult, FastaRecord } from '../types';
+import { hasSnapGeneSignature, parseSnapGeneSequence } from './snapgene.ts';
 
 const SUPPORTED_SEQUENCE_EXTENSIONS = /\.(fasta|fas|fa|mpfa|faa|pep|aa|fna|ffn|frn|cds|nt|fastq|fq|txt|seq|gb|gbk|genbank|embl|dna|ape)$/i;
 const IUPAC_SEQUENCE_RUN = /[ACGTRYSWKMBDHVNUacgtryswkmbdhvnu]{24,}/g;
@@ -136,7 +137,7 @@ function parseLongestSequenceRun(text: string, sourceName?: string): FastaParseR
   return {
     records: [{ name: fallbackName(sourceName), sequence, source: sourceName }],
     warnings: [
-      `${sourceName ?? 'Sequence file'} 使用了通用序列提取模式；原生 SnapGene .dna 属于专有二进制格式，建议优先从 SnapGene 导出 FASTA 或 GenBank。`,
+      `${sourceName ?? 'Sequence file'} 使用了通用序列提取模式；建议从 ApE 导出 FASTA 或 GenBank。`,
     ],
     errors: [],
   };
@@ -231,18 +232,37 @@ export async function readFastaFiles(files: FileList | File[]): Promise<FastaPar
   for (const file of Array.from(files)) {
     const buffer = await file.arrayBuffer();
     const text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
-    const isBinaryLike = /\.(dna|ape)$/i.test(file.name);
+    const isSnapGene = hasSnapGeneSignature(buffer);
+    const isDnaFile = /\.dna$/i.test(file.name);
+    const isApeFile = /\.ape$/i.test(file.name);
     const hasStructuredText =
       /^\s*>/m.test(text) || /(?:^|\n)\s*ORIGIN\s*\n/i.test(text) || /(?:^|\n)\s*SQ\s+/i.test(text) || /^\s*@/m.test(text);
     let parsed: FastaParseResult;
 
-    if (isBinaryLike && !hasStructuredText) {
+    // Inspect the binary signature before text: annotation packets can contain
+    // FASTA-looking text that must never replace the actual DNA packet.
+    if (isSnapGene || (isDnaFile && (new Uint8Array(buffer)[0] === 0x09 ||
+      (!hasStructuredText && !/^[ACGTRYSWKMBDHVNU\s0-9]+$/i.test(text))))) {
+      try {
+        parsed = {
+          records: [{ name: fallbackName(file.name), sequence: parseSnapGeneSequence(buffer), source: file.name }],
+          warnings: [],
+          errors: [],
+        };
+      } catch (error) {
+        parsed = {
+          records: [],
+          warnings: [],
+          errors: [error instanceof Error ? error.message : '无法解析 SnapGene 文件。'],
+        };
+      }
+    } else if (isApeFile && !hasStructuredText) {
       const binaryText = new TextDecoder('latin1', { fatal: false }).decode(buffer);
       parsed =
         parseLongestSequenceRun(binaryText, file.name) ?? {
           records: [],
           warnings: [],
-          errors: ['未能从原生 SnapGene/ApE 二进制文件中提取序列；请从软件导出 FASTA 或 GenBank 后再上传。'],
+          errors: ['未能从 ApE 文件中提取序列；请从软件导出 FASTA 或 GenBank 后再上传。'],
         };
     } else {
       parsed = parseSequenceText(text, file.name);

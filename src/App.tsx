@@ -704,7 +704,7 @@ export default function App() {
     event.target.value = '';
 
     if (!fileExtensionsOk(files)) {
-      pushAlerts([makeAlert('error', 'Template upload 支持 FASTA、GenBank、EMBL、SnapGene 导出文本及常见 .dna/.seq 文件。')]);
+      pushAlerts([makeAlert('error', 'Template upload 支持 FASTA、GenBank、EMBL、原生 SnapGene .dna 及常见 .seq 文件。')]);
       return;
     }
 
@@ -757,7 +757,7 @@ export default function App() {
     event.target.value = '';
 
     if (!fileExtensionsOk(files)) {
-      pushAlerts([makeAlert('error', 'Query upload 支持 FASTA、GenBank、EMBL、SnapGene 导出文本及常见 .dna/.seq 文件。')]);
+      pushAlerts([makeAlert('error', 'Query upload 支持 FASTA、GenBank、EMBL、原生 SnapGene .dna 及常见 .seq 文件。')]);
       return;
     }
 
