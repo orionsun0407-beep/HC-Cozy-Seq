@@ -36,6 +36,7 @@ test('parseFASTA uses the sample filename for a consensus insert result', () => 
 test('parseFASTA extracts the sample name from a vendor plasmids filename', () => {
   const header = '>1 len=5792 depth=1.00x plasmid_copy_number_long=infx circular=true\nATGCGT\n';
   const names = [
+    ['B4255922-E2-032-G0_B282-0.plasmids.fasta', 'E2-032'],
     ['3922030-MEMO-m3-G0_B242-0.plasmids.fasta', 'NEMO-m3'],
     ['3922029-MEMO-m2-G0_B241-0.plasmids.fasta', 'NEMO-m2'],
     ['3922028-MEMO-m1-G0_B240-0.plasmids.fasta', 'NEMO-m1'],

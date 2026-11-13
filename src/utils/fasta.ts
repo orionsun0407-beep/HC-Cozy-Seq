@@ -5,7 +5,7 @@ const SUPPORTED_SEQUENCE_EXTENSIONS = /\.(fasta|fas|fa|mpfa|faa|pep|aa|fna|ffn|f
 const IUPAC_SEQUENCE_RUN = /[ACGTRYSWKMBDHVNUacgtryswkmbdhvnu]{24,}/g;
 const GENERIC_ASSEMBLY_RECORD_NAME = /^(?:contig|scaffold|sequence|seq|record)\s*[_-]?\d+(?:\s+(?:circular|linear))?$/i;
 const SAMPLE_NAMED_SINGLE_RECORD_FILE = /\.(?:genome|consensus(?:\.insert)?)\.(?:fasta|fas|fa|fna)$/i;
-const VENDOR_PLASMID_FILE = /^\d+-([A-Za-z0-9][A-Za-z0-9_-]*?)-G\d+_B\d+(?:-\d+)?\.plasmids\.(?:fasta|fas|fa|fna)$/i;
+const VENDOR_PLASMID_FILE = /^[A-Za-z]*\d+-([A-Za-z0-9][A-Za-z0-9_-]*?)-G\d+_B\d+(?:-\d+)?\.plasmids\.(?:fasta|fas|fa|fna)$/i;
 
 export function trimTerminalStopSymbol(sequence: string): string {
   return sequence.replace(/\*+$/g, '');
