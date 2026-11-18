@@ -70,6 +70,7 @@ export interface FocusWindowRow {
   coverage?: number;
   mutationCount: number;
   mutationLabels: string[];
+  note?: string;
   cells: FocusWindowCell[];
 }
 
@@ -149,7 +150,54 @@ function buildFocusWindows(results: ComparisonResult[], templateName: string, te
     })),
   );
 
-  if (!rawEvents.length) return [];
+  if (!rawEvents.length) {
+    const ranges = templateLength <= 40
+      ? [{ start: 1, end: templateLength }]
+      : [{ start: 1, end: 20 }, { start: templateLength - 19, end: templateLength }];
+    const templateResidues = new Map([...templateSequence].map((char, index) => [index + 1, char]));
+    const queryResidues = results.map((result) =>
+      result.status === 'unreliable' ? new Map<number, string>() : residueMapByTemplatePosition(result),
+    );
+    const cellsForSequence = (residues: Map<number, string>, start: number, end: number): FocusWindowCell[] =>
+      Array.from({ length: end - start + 1 }, (_, index) => ({
+        position: start + index,
+        char: residues.get(start + index) ?? '·',
+        mutation: null,
+        insertionLabels: [],
+        color: null,
+      }));
+
+    return ranges.map(({ start, end }, index) => ({
+      id: `unchanged-${index + 1}`,
+      start,
+      end,
+      rows: [
+        {
+          id: `template-unchanged-${index + 1}`,
+          label: templateName,
+          mutationCount: 0,
+          mutationLabels: [],
+          cells: cellsForSequence(templateResidues, start, end),
+        },
+        ...results.map((result, resultIndex) => ({
+          id: result.id,
+          label: result.queryName,
+          queryName: result.queryName,
+          coverage: result.metadata.templateCoverage,
+          mutationCount: 0,
+          mutationLabels: [],
+          note: result.status === 'unreliable'
+            ? 'Unable to determine mutations'
+            : `No mutation · ${Math.round(result.metadata.templateCoverage * 100)}% coverage`,
+          cells: cellsForSequence(queryResidues[resultIndex], start, end),
+        })),
+      ],
+      hiddenRowCount: 0,
+      eventCount: 0,
+      queryCount: results.length,
+      title: `Positions ${start}-${end}`,
+    }));
+  }
 
   rawEvents.sort((a, b) => a.start - b.start || a.end - b.end);
 
@@ -211,7 +259,7 @@ function buildFocusWindows(results: ComparisonResult[], templateName: string, te
           const mutation = mutationByPosition.get(position) ?? null;
           cells.push({
             position,
-            char: residues.get(position) ?? templateSequence[position - 1] ?? '·',
+            char: residues.get(position) ?? '·',
             mutation,
             insertionLabels: insertionsByPosition.get(position) ?? [],
             color: mutation ? colorForMutation(mutation, rules) : null,

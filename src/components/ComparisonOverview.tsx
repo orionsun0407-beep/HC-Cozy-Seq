@@ -46,10 +46,11 @@ function summarizeLabels(labels: string[], max = 2): string {
 function windowTicks(start: number, end: number): number[] {
   const length = end - start + 1;
   const step = length <= 24 ? 5 : 10;
+  const minimumGap = Math.ceil(String(end).length * 7 / CELL_WIDTH) + 1;
   const ticks = new Set([start, end]);
   let next = Math.ceil(start / step) * step;
   while (next < end) {
-    ticks.add(next);
+    if (next - start >= minimumGap && end - next >= minimumGap) ticks.add(next);
     next += step;
   }
   return [...ticks].sort((a, b) => a - b);
@@ -313,7 +314,7 @@ function splitLongSegments(segments: FocusWindow[]): FocusWindow[] {
 
 function aggregateRowNote(rowIndex: number, segments: FocusWindow[]): string {
   const labels = segments.flatMap((segment) => segment.rows[rowIndex]?.mutationLabels ?? []);
-  return summarizeLabels(labels);
+  return summarizeLabels(labels) || segments[0]?.rows[rowIndex]?.note || '';
 }
 
 export function ComparisonOverview({ results, rules, onStatus }: ComparisonOverviewProps) {
@@ -362,12 +363,13 @@ export function ComparisonOverview({ results, rules, onStatus }: ComparisonOverv
             </button>
           </div>
         </div>
-        <p className="empty-note">This batch has no called mutation events, so there is no zoomed mutation overview to display.</p>
+        <p className="empty-note">No reliable target sequence was identified. Mutations cannot be determined.</p>
       </section>
     );
   }
 
   const lines = packSegments(segments);
+  const mutationFocused = model.rows.some((row) => row.mutationCount > 0);
   const rows = segments[0].rows;
   const labelWidth = Math.min(
     LABEL_WIDTH_MAX,
@@ -384,7 +386,7 @@ export function ComparisonOverview({ results, rules, onStatus }: ComparisonOverv
 
   let currentY = TOP_MARGIN;
   const lineGroups = lines.map((line, lineIndex) => {
-    const lineHeight = 28 + 26 + rows.length * ROW_HEIGHT + 14;
+    const lineHeight = 80 + rows.length * ROW_HEIGHT + 8;
     const groupY = currentY;
     currentY += lineHeight + 20;
     return { line, lineIndex, y: groupY, height: lineHeight };
@@ -467,16 +469,18 @@ export function ComparisonOverview({ results, rules, onStatus }: ComparisonOverv
           height={svgHeight}
           viewBox={`0 0 ${svgWidth} ${svgHeight}`}
           role="img"
-          aria-label="Combined mutation overview"
+          aria-label={mutationFocused ? 'Combined mutation overview' : 'Sequence comparison overview'}
         >
           <style>{SVG_STYLE}</style>
           <rect width={svgWidth} height={svgHeight} fill="#ffffff" />
           <g className="overview-root">
             <text className="overview-title" x={LEFT_MARGIN} y={34}>
-              HC CozySeq Mutation Overview
+              HC CozySeq {mutationFocused ? 'Mutation' : 'Comparison'} Overview
             </text>
             <text className="overview-subtitle" x={LEFT_MARGIN} y={54}>
-              {model.templateName} · {model.mode} · {model.rowCount} queries · combined mutation-focused alignment figure
+              {model.templateName} · {model.mode} · {model.rowCount} queries · {mutationFocused
+                ? 'combined mutation-focused alignment figure'
+                : `${model.templateLength > 40 ? 'first and last 20 aa' : 'full sequence'} · no called mutation events`}
             </text>
 
             {lineGroups.map(({ line, lineIndex, y, height }) => {
@@ -486,12 +490,16 @@ export function ComparisonOverview({ results, rules, onStatus }: ComparisonOverv
                 <g key={`line-${lineIndex}`} transform={`translate(0, ${y})`}>
                   <rect x={LEFT_MARGIN} y={0} width={svgWidth - LEFT_MARGIN * 2} height={height} rx={10} fill="#fbfcf8" stroke="#dfe7dc" />
                   <text className="section-title" x={LEFT_MARGIN + 14} y={22}>
-                    {line.length === 1
+                    {!mutationFocused
+                      ? `Sequence positions ${line.map((segment) => `${segment.start}-${segment.end}`).join(' / ')}`
+                      : line.length === 1
                       ? `Mutation window ${line[0].start}-${line[0].end}`
                       : `Combined mutation windows ${line[0].start}-${line[line.length - 1].end}`}
                   </text>
                   <text className="section-subtitle" x={LEFT_MARGIN + 14} y={40}>
-                    Actual residues are shown for template and all query sequences in one figure.
+                    {mutationFocused
+                      ? 'Actual residues are shown for template and all query sequences in one figure.'
+                      : 'No mutation applies to aligned residues only. Coverage and unaligned positions are shown for each query.'}
                   </text>
 
                   {line.map((segment, segmentIndex) => {
@@ -574,22 +582,28 @@ export function ComparisonOverview({ results, rules, onStatus }: ComparisonOverv
             })}
 
             <g transform={`translate(${LEFT_MARGIN}, ${legendY})`}>
-              <g>
-                <rect x={0} y={4} width={16} height={20} rx={4} fill="#e8ece8" stroke="#bdc7bf" />
-                <text className="seq-char" x={8} y={19} textAnchor="middle" fill="#3f4b44">R</text>
-                <text className="legend-text" x={26} y={18}>Substitution</text>
-              </g>
-              <g transform="translate(170, 0)">
-                <rect x={0} y={4} width={16} height={20} rx={4} fill="#e8ece8" stroke="#bdc7bf" />
-                <text className="seq-char" x={8} y={19} textAnchor="middle" fill="#3f4b44">-</text>
-                <text className="legend-text" x={26} y={18}>Deletion</text>
-              </g>
-              <g transform="translate(310, 0)">
-                <rect x={0} y={4} width={16} height={20} rx={4} fill="#e8ece8" stroke="#bdc7bf" />
-                <polygon points="8,0 13,8 3,8" fill="#7a2434" />
-                <text className="seq-char" x={8} y={19} textAnchor="middle" fill="#3f4b44">A</text>
-                <text className="legend-text" x={26} y={18}>Insertion anchor</text>
-              </g>
+              {!mutationFocused ? (
+                <text className="legend-text" x={0} y={18}>· Unaligned or unreliable position · No mutation does not imply full template coverage</text>
+              ) : (
+                <>
+                  <g>
+                    <rect x={0} y={4} width={16} height={20} rx={4} fill="#e8ece8" stroke="#bdc7bf" />
+                    <text className="seq-char" x={8} y={19} textAnchor="middle" fill="#3f4b44">R</text>
+                    <text className="legend-text" x={26} y={18}>Substitution</text>
+                  </g>
+                  <g transform="translate(170, 0)">
+                    <rect x={0} y={4} width={16} height={20} rx={4} fill="#e8ece8" stroke="#bdc7bf" />
+                    <text className="seq-char" x={8} y={19} textAnchor="middle" fill="#3f4b44">-</text>
+                    <text className="legend-text" x={26} y={18}>Deletion</text>
+                  </g>
+                  <g transform="translate(310, 0)">
+                    <rect x={0} y={4} width={16} height={20} rx={4} fill="#e8ece8" stroke="#bdc7bf" />
+                    <polygon points="8,0 13,8 3,8" fill="#7a2434" />
+                    <text className="seq-char" x={8} y={19} textAnchor="middle" fill="#3f4b44">A</text>
+                    <text className="legend-text" x={26} y={18}>Insertion anchor</text>
+                  </g>
+                </>
+              )}
             </g>
           </g>
         </svg>
